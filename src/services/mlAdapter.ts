@@ -178,6 +178,9 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
     if (response.status === 429) {
       const errData = await response.json().catch(() => ({}));
       this.submissionCount = 10;
+      if (errData.error === 'PURPLE_ALREADY_COMPLETED') {
+        throw new Error(errData.message || 'Team has already completed the Purple Zone. Evacuation is authorized and submissions are permanently locked.');
+      }
       throw new Error(errData.message || 'Maximum 10 submissions allowed per team. Submission quota exhausted.');
     }
 
@@ -190,22 +193,33 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
     }
 
     const data = await response.json();
-    this.submissionCount = data.submissionsUsed ?? (this.submissionCount + 1);
-    const now = new Date();
+    if (
+      !data ||
+      !data.evaluationId ||
+      typeof data.r2Score !== 'number' ||
+      typeof data.submissionsUsed !== 'number' ||
+      !data.timestamp
+    ) {
+      throw new Error('MALFORMED_SERVER_RESPONSE: Authoritative evaluation metadata missing from central hub response.');
+    }
+
+    this.submissionCount = data.submissionsUsed;
     const r2Pct = (data.r2Score * 100).toFixed(2);
-    const attemptNum = data.attemptNumber || this.submissionCount;
+    const attemptNum = data.attemptNumber || data.submissionsUsed;
 
     return {
-      evaluationId: data.evaluationId ? String(data.evaluationId) : ('EVAL-PRALAYA-' + Math.floor(now.getTime() % 100000).toString(16).toUpperCase().padStart(4, '0')),
-      timestamp: data.timestamp ? (String(data.timestamp).includes('UTC') ? String(data.timestamp) : String(data.timestamp).replace('T', ' ').substring(0, 19) + ' UTC') : (now.toISOString().replace('T', ' ').substring(0, 19) + ' UTC'),
+      evaluationId: String(data.evaluationId),
+      timestamp: String(data.timestamp).includes('UTC')
+        ? String(data.timestamp)
+        : String(data.timestamp).replace('T', ' ').substring(0, 19) + ' UTC',
       modelFingerprint: `SUBMISSION #${attemptNum} // ${rawFilename}`,
       datasetChecksum: 'GROUND_TRUTH_120_SURVIVORS',
       status: data.qualifiesForEscape ? 'ACCEPTED' : 'REJECTED',
       r2Score: data.r2Score,
       mseScore: data.mseScore,
       qualifiesForEscape: Boolean(data.qualifiesForEscape),
-      submissionsUsed: data.submissionsUsed ?? this.submissionCount,
-      submissionsRemaining: data.submissionsRemaining ?? Math.max(0, 10 - this.submissionCount),
+      submissionsUsed: data.submissionsUsed,
+      submissionsRemaining: data.submissionsRemaining ?? Math.max(0, 10 - data.submissionsUsed),
       primaryMetric: {
         label: 'COEFFICIENT OF DETERMINATION (R²)',
         value: `${r2Pct}%`,
@@ -216,7 +230,7 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
         {
           key: 'mse',
           label: 'Mean Squared Error (MSE)',
-          value: (data.mseScore || 0).toFixed(6),
+          value: typeof data.mseScore === 'number' ? data.mseScore.toFixed(6) : 'N/A',
           nominalRange: '< 0.0150',
           status: 'verified'
         },
