@@ -194,17 +194,18 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
     this.submissionCount = data.submissionsUsed ?? (this.submissionCount + 1);
     const now = new Date();
     const r2Pct = (data.r2Score * 100).toFixed(2);
+    const attemptNum = data.attemptNumber || this.submissionCount;
 
     return {
-      evaluationId: 'EVAL-PRALAYA-' + Math.floor(now.getTime() % 100000).toString(16).toUpperCase().padStart(4, '0'),
-      timestamp: now.toISOString().replace('T', ' ').substring(0, 19) + ' UTC',
-      modelFingerprint: `SUBMISSION #${this.submissionCount} // ${rawFilename}`,
+      evaluationId: data.evaluationId ? String(data.evaluationId) : ('EVAL-PRALAYA-' + Math.floor(now.getTime() % 100000).toString(16).toUpperCase().padStart(4, '0')),
+      timestamp: data.timestamp ? (String(data.timestamp).includes('UTC') ? String(data.timestamp) : String(data.timestamp).replace('T', ' ').substring(0, 19) + ' UTC') : (now.toISOString().replace('T', ' ').substring(0, 19) + ' UTC'),
+      modelFingerprint: `SUBMISSION #${attemptNum} // ${rawFilename}`,
       datasetChecksum: 'GROUND_TRUTH_120_SURVIVORS',
       status: data.qualifiesForEscape ? 'ACCEPTED' : 'REJECTED',
       r2Score: data.r2Score,
       mseScore: data.mseScore,
       qualifiesForEscape: Boolean(data.qualifiesForEscape),
-      submissionsUsed: this.submissionCount,
+      submissionsUsed: data.submissionsUsed ?? this.submissionCount,
       submissionsRemaining: data.submissionsRemaining ?? Math.max(0, 10 - this.submissionCount),
       primaryMetric: {
         label: 'COEFFICIENT OF DETERMINATION (R²)',
