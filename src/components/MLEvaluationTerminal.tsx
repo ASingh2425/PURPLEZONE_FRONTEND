@@ -35,6 +35,10 @@ interface MLEvaluationTerminalProps {
   evaluationResult: EvaluationResult | null;
   onRunEvaluation: (csvContent?: string, filename?: string) => void;
   onProceedToExtraction?: () => void;
+  quotaSyncError?: string | null;
+  isQuotaSynced?: boolean;
+  syncedQuota?: { used: number; remaining: number };
+  onRetrySync?: () => void;
 }
 
 type TerminalTab = 'guidelines' | 'data' | 'submit' | 'scorecard';
@@ -74,6 +78,10 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
   evaluationResult,
   onRunEvaluation,
   onProceedToExtraction,
+  quotaSyncError,
+  isQuotaSynced = true,
+  syncedQuota,
+  onRetrySync,
 }) => {
   const [activeTab, setActiveTab] = useState<TerminalTab>('guidelines');
   const [csvContent, setCsvContent] = useState<string>('');
@@ -106,9 +114,10 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
     stage === 'EXTRACTION_IN_PROGRESS' ||
     stage === 'EXTRACTED';
 
-  const submissionsUsed = evaluationResult?.submissionsUsed ?? 0;
-  const submissionsRemaining = evaluationResult?.submissionsRemaining ?? Math.max(0, 10 - submissionsUsed);
+  const submissionsUsed = evaluationResult?.submissionsUsed ?? syncedQuota?.used ?? 0;
+  const submissionsRemaining = evaluationResult?.submissionsRemaining ?? syncedQuota?.remaining ?? Math.max(0, 10 - submissionsUsed);
   const isQuotaExhausted = submissionsUsed >= 10;
+  const isSyncBlocked = !isQuotaSynced || !!quotaSyncError;
   const qualifies = evaluationResult?.qualifiesForEscape ?? (evaluationResult?.r2Score !== undefined && evaluationResult.r2Score >= 0.80);
 
   // Automatically switch tab to scorecard when evaluation is triggered or complete
@@ -745,6 +754,27 @@ print(submission.head(5))
             ===================================================================== */}
         {activeTab === 'submit' && (
           <div className="space-y-3 animate-[fadeIn_0.2s_ease-out]">
+            {/* Quota Sync Failure Warning */}
+            {quotaSyncError && (
+              <div className="bg-[#2d1118] border-2 border-[#f59e0b] p-3 flex items-start justify-between gap-2.5 text-xs font-mono text-[#fde68a]">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-tech text-sm text-[#fef3c7]">QUOTA VERIFICATION OFFLINE</strong>
+                    <span>Cannot verify remaining submission attempts with Central Evaluation Hub: {quotaSyncError}</span>
+                  </div>
+                </div>
+                {onRetrySync && (
+                  <button
+                    onClick={onRetrySync}
+                    className="shrink-0 px-2.5 py-1 bg-[#451a03] hover:bg-[#78350f] border border-[#d97706] text-[10px] font-tech text-[#fef3c7] transition-colors"
+                  >
+                    RETRY SYNC
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Quota Exhausted Warning */}
             {isQuotaExhausted && (
               <div className="bg-[#2d1118] border-2 border-[#ef4444] p-3 flex items-start gap-2.5 text-xs font-mono text-[#fca5a5]">
@@ -946,17 +976,19 @@ print(submission.head(5))
             {/* Run Evaluation Action Button */}
             <div className="pt-2">
               <button
-                disabled={!preflight.valid || isQuotaExhausted || isEvaluating}
+                disabled={!preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked}
                 onClick={handleTriggerSubmission}
                 className={`w-full py-3 px-4 flex items-center justify-center gap-2 font-tech text-sm font-bold tracking-widest uppercase transition-all shadow-md ${
-                  !preflight.valid || isQuotaExhausted || isEvaluating
+                  !preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked
                     ? 'bg-[#1b122e] text-[#63537d] border border-[#2f204a] cursor-not-allowed opacity-60'
                     : 'bg-[#351963] hover:bg-[#4b238c] active:bg-[#28114c] text-[#f5f2fe] border-2 border-[#9333ea] shadow-[0_0_20px_rgba(147,51,234,0.35)] cursor-pointer'
                 }`}
               >
                 <Play className="w-4 h-4 text-[#38bdf8] fill-current" />
                 <span>
-                  {isQuotaExhausted
+                  {isSyncBlocked
+                    ? 'QUOTA SYNC REQUIRED // RECONNECT TO HUB'
+                    : isQuotaExhausted
                     ? 'EVALUATION LOCKED (10/10 EXHAUSTED)'
                     : !preflight.checked
                     ? 'LOAD CSV FILE TO EVALUATE'

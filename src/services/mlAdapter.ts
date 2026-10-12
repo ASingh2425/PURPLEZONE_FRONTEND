@@ -103,22 +103,21 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
   }
 
   async syncSubmissions(): Promise<{ used: number; remaining: number }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/ml/submissions`, {
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.submissionsUsed === 'number') {
-          this.submissionCount = data.submissionsUsed;
-          return {
-            used: data.submissionsUsed,
-            remaining: data.submissionsRemaining ?? Math.max(0, 10 - data.submissionsUsed),
-          };
-        }
-      }
-    } catch (_) {}
-    return { used: this.submissionCount, remaining: Math.max(0, 10 - this.submissionCount) };
+    const res = await fetch(`${API_BASE_URL}/api/ml/submissions`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`Quota sync failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+    if (typeof data.submissionsUsed !== 'number') {
+      throw new Error('Malformed quota response from server');
+    }
+    this.submissionCount = data.submissionsUsed;
+    return {
+      used: data.submissionsUsed,
+      remaining: data.submissionsRemaining ?? Math.max(0, 10 - data.submissionsUsed),
+    };
   }
 
   async evaluateModel(

@@ -80,6 +80,22 @@ export function App() {
     setNotifications((prev) => [...prev.slice(-8), newNotice]);
   }, []);
 
+  const [isQuotaSynced, setIsQuotaSynced] = useState<boolean>(false);
+  const [quotaSyncError, setQuotaSyncError] = useState<string | null>(null);
+  const [syncedQuota, setSyncedQuota] = useState<{ used: number; remaining: number }>({ used: 0, remaining: 10 });
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      const q = await mlEvaluationService.syncSubmissions();
+      setIsQuotaSynced(true);
+      setQuotaSyncError(null);
+      setSyncedQuota(q);
+    } catch (err: any) {
+      setIsQuotaSynced(false);
+      setQuotaSyncError(err.message || 'Unable to connect to evaluation hub to verify quota.');
+    }
+  }, []);
+
   // Reset simulation to arrival state
   const handleReset = useCallback(() => {
     clearAllTimers();
@@ -94,7 +110,8 @@ export function App() {
     setEvaluationSteps(mlEvaluationService.getEvaluationSteps());
     setNotifications([]);
     pushNotification('PROTOCOL SIMULATION RESET // PURPLE TRANSIT INITIALIZED', 'info');
-  }, [clearAllTimers, pushNotification]);
+    refreshQuota();
+  }, [clearAllTimers, pushNotification, refreshQuota]);
 
   // Initial welcome notification
   useEffect(() => {
@@ -103,7 +120,7 @@ export function App() {
 
   // Initial sync with submissions API and bootstrap
   useEffect(() => {
-    mlEvaluationService.syncSubmissions().catch(() => {});
+    refreshQuota();
 
     const fetchBootstrap = async () => {
       try {
@@ -128,7 +145,7 @@ export function App() {
     return () => {
       clearAllTimers();
     };
-  }, [clearAllTimers, pushNotification]);
+  }, [clearAllTimers, pushNotification, refreshQuota]);
 
   // --------------------------------------------------------------------------
   // STEP 1: RUN MODEL EVALUATION
@@ -163,6 +180,7 @@ export function App() {
         );
 
         setEvaluationResult(result);
+        refreshQuota();
 
         if (result.qualifiesForEscape) {
           setStage('EVALUATION_COMPLETE');
@@ -190,6 +208,7 @@ export function App() {
         pushNotification(err.message || 'EVALUATION PIPELINE INTERRUPTED', 'system');
         setStage('READY');
         isExecutingRef.current = false;
+        refreshQuota();
       }
     }, 400);
   };
@@ -344,6 +363,10 @@ export function App() {
         onRunEvaluation={handleRunEvaluation}
         onProceedToExtraction={handleAuthorizeExit}
         onBeginExtraction={handleBeginExtraction}
+        quotaSyncError={quotaSyncError}
+        isQuotaSynced={isQuotaSynced}
+        syncedQuota={syncedQuota}
+        onRetrySync={refreshQuota}
       />
 
       {/* 4. Subtle System Event Notification Feed */}

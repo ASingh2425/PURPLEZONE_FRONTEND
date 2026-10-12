@@ -18,6 +18,10 @@ interface TransitEnvironmentProps {
   onRunEvaluation: (csvContent?: string, filename?: string) => void;
   onProceedToExtraction: () => void;
   onBeginExtraction: () => void;
+  quotaSyncError?: string | null;
+  isQuotaSynced?: boolean;
+  syncedQuota?: { used: number; remaining: number };
+  onRetrySync?: () => void;
 }
 
 export const TransitEnvironment: React.FC<TransitEnvironmentProps> = ({
@@ -32,6 +36,10 @@ export const TransitEnvironment: React.FC<TransitEnvironmentProps> = ({
   onRunEvaluation,
   onProceedToExtraction,
   onBeginExtraction,
+  quotaSyncError,
+  isQuotaSynced,
+  syncedQuota,
+  onRetrySync,
 }) => {
   return (
     <main className="relative w-full flex-1 min-h-[640px] flex flex-col justify-between overflow-hidden bg-[#07050d] select-none">
@@ -113,6 +121,10 @@ export const TransitEnvironment: React.FC<TransitEnvironmentProps> = ({
             evaluationResult={evaluationResult}
             onRunEvaluation={onRunEvaluation}
             onProceedToExtraction={onProceedToExtraction}
+            quotaSyncError={quotaSyncError}
+            isQuotaSynced={isQuotaSynced}
+            syncedQuota={syncedQuota}
+            onRetrySync={onRetrySync}
           />
 
           {/* Extraction Dispatch Panel (Reveals when helicopter lands on helipad) */}
