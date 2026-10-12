@@ -4,6 +4,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://last-dataset.vercel.app/api/:path*"
+    },
+    {
+      "source": "/datasets/:path*",
+      "destination": "https://last-dataset.vercel.app/datasets/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

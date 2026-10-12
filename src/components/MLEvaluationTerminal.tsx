@@ -219,12 +219,56 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
 
   // Handle file selection from local device
   const handleFileSelect = (file: File) => {
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setSelectedFileName(file.name);
+      setPreflight({
+        checked: true,
+        valid: false,
+        headerValid: false,
+        rowCount: 0,
+        countValid: false,
+        idsValid: false,
+        rangeValid: false,
+        errors: ['Invalid file format: upload must be a .csv file.'],
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setSelectedFileName(file.name);
+      setPreflight({
+        checked: true,
+        valid: false,
+        headerValid: false,
+        rowCount: 0,
+        countValid: false,
+        idsValid: false,
+        rangeValid: false,
+        errors: [`File size (${(file.size / (1024 * 1024)).toFixed(2)} MB) exceeds maximum allowed limit (5 MB).`],
+      });
+      return;
+    }
+
     setSelectedFileName(file.name);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = (e.target?.result as string) || '';
       setCsvContent(text);
       runPreflightValidation(text, file.name);
+    };
+    reader.onerror = () => {
+      setPreflight({
+        checked: true,
+        valid: false,
+        headerValid: false,
+        rowCount: 0,
+        countValid: false,
+        idsValid: false,
+        rangeValid: false,
+        errors: ['Failed to read file from local device.'],
+      });
     };
     reader.readAsText(file);
   };
@@ -268,28 +312,54 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
     onRunEvaluation(csvContent, selectedFileName || 'submission.csv');
   };
 
-  const pythonStarterScript = `# PRALAYA CORE // 4-ZONE DATASET RECONSTRUCTION STARTER
+  const pythonStarterScript = `# ==============================================================================
+# PRALAYA CORE // RECONSTRUCTION & REGRESSION BASELINE (100% EXECUTABLE)
+# ==============================================================================
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score
 
-# 1. Download and load the 4 zone fragments
-community = pd.read_csv('community_final.csv')   # Yellow: 20 features
-radio = pd.read_csv('radio_final.csv')           # Blue: 18 features
-forensics = pd.read_csv('forensics_final.csv')   # Orange: 18 features
-research = pd.read_csv('research_final.csv')     # Red: 25 features
+print("[1/4] Loading reconstructed zone archive fragments...")
+# Load the 4 zone fragments recovered across previous sectors
+community = pd.read_csv('community_final.csv')   # Yellow Sector (20 features)
+radio     = pd.read_csv('radio_final.csv')       # Blue Sector   (18 features)
+forensics = pd.read_csv('forensics_final.csv')   # Orange Sector (18 features)
+research  = pd.read_csv('research_final.csv')    # Red Sector    (25 features)
 
-# 2. Reconstruct test.csv (120 survivors) via inner join on Sanctuary_ID
-test = community.merge(radio, on='Sanctuary_ID') \\
-                .merge(forensics, on='Sanctuary_ID') \\
-                .merge(research, on='Sanctuary_ID')
+print("[2/4] Joining test survivors across fragments...")
+# Inner merge on Sanctuary_ID to assemble test.csv (120 survivors)
+test_df = community.merge(radio, on='Sanctuary_ID') \\
+                   .merge(forensics, on='Sanctuary_ID') \\
+                   .merge(research, on='Sanctuary_ID')
 
-# 3. Load historical training set (450 residents with Survival_Probability)
-train = pd.read_csv('train.csv')
+print(f"      Reconstructed test set shape: {test_df.shape}")
 
-# 4. Train regression model and predict Survival_Probability
-# test['Survival_Probability'] = model.predict(test_features)
-# test[['Sanctuary_ID', 'Survival_Probability']].to_csv('submission.csv', index=False)
+print("[3/4] Training RandomForestRegressor on train.csv...")
+# Load historical labeled dataset (450 residents with Survival_Probability)
+train_df = pd.read_csv('train.csv')
+
+target_col = 'Survival_Probability'
+feature_cols = [c for c in test_df.columns if c != 'Sanctuary_ID' and c in train_df.columns]
+
+X_train = train_df[feature_cols].select_dtypes(include=[np.number]).fillna(0)
+y_train = train_df[target_col]
+X_test  = test_df[X_train.columns].fillna(0)
+
+# Train baseline Random Forest model
+model = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42)
+model.fit(X_train, y_train)
+
+print("[4/4] Generating predictions and exporting submission.csv...")
+predictions = np.clip(model.predict(X_test), 0.0, 1.0)
+
+submission = pd.DataFrame({
+    'Sanctuary_ID': test_df['Sanctuary_ID'],
+    'Survival_Probability': np.round(predictions, 4)
+})
+
+submission.to_csv('submission.csv', index=False)
+print("SUCCESS: submission.csv generated (120 rows). Ready for terminal upload!")
+print(submission.head(5))
 `;
 
   const copyScriptToClipboard = () => {
@@ -737,12 +807,14 @@ train = pd.read_csv('train.csv')
                 <input
                   type="file"
                   ref={fileInputRef}
-                  accept=".csv"
+                  accept=".csv,text/csv"
                   className="hidden"
                   onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      handleFileSelect(e.target.files[0]);
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleFileSelect(file);
                     }
+                    e.target.value = '';
                   }}
                 />
 
@@ -806,7 +878,13 @@ train = pd.read_csv('train.csv')
 
               <button
                 type="button"
-                onClick={() => setIsPasting(!isPasting)}
+                onClick={() => {
+                  const nextPasting = !isPasting;
+                  setIsPasting(nextPasting);
+                  if (nextPasting && csvContent) {
+                    setPastedText(csvContent);
+                  }
+                }}
                 className="text-[#a855f7] hover:text-[#c084fc] transition-colors"
               >
                 {isPasting ? 'SWITCH TO FILE DROP' : 'OR PASTE RAW CSV'}

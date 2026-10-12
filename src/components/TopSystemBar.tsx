@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Volume2, VolumeX, RotateCcw, ShieldCheck, AlertCircle, WifiOff } from 'lucide-react';
 import { PURPLE_CONFIG } from '../config/purpleConfig';
 import { soundFx } from '../services/soundFx';
 
@@ -8,22 +8,57 @@ interface TopSystemBarProps {
   audioMuted: boolean;
   onToggleAudio: () => void;
   onReset: () => void;
+  teamInfo?: {
+    teamId?: string;
+    teamName?: string;
+    delegateId?: string;
+    points?: number;
+  } | null;
 }
 
 export const TopSystemBar: React.FC<TopSystemBarProps> = ({
   audioMuted,
   onToggleAudio,
   onReset,
+  teamInfo,
 }) => {
-  const [clock, setClock] = useState<string>('00:00:00');
+  const [clock, setClock] = useState<string>('00:00:00 UTC');
+  const [healthStatus, setHealthStatus] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>('ONLINE');
 
+  // True UTC Clock
   useEffect(() => {
     const updateTime = () => {
       const d = new Date();
-      setClock(d.toTimeString().split(' ')[0]);
+      setClock(d.toISOString().substring(11, 19) + ' UTC');
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Live Arbiter Health Monitoring
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
+        const res = await fetch(`${apiBase}/api/health`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.status === 'ok' || data.ok || data.status === 'operational') {
+            setHealthStatus('ONLINE');
+          } else {
+            setHealthStatus('DEGRADED');
+          }
+        } else {
+          setHealthStatus('DEGRADED');
+        }
+      } catch (_) {
+        setHealthStatus('OFFLINE');
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -46,6 +81,13 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
           <span className="hidden sm:inline">TRANSIT FACILITY</span>
           <span className="sm:hidden">TRANSIT</span>
         </div>
+
+        {teamInfo?.teamId && (
+          <div className="hidden md:flex items-center gap-1.5 px-2 py-0.5 bg-[#1b122e] border border-[#7e3af2]/60 text-[10px] font-mono text-[#d8b4fe]">
+            <span className="text-[#a855f7] font-bold">OPERATOR:</span>
+            <span className="text-[#f5f2fe] font-semibold truncate max-w-[140px]">{teamInfo.teamName || teamInfo.teamId}</span>
+          </div>
+        )}
 
         <div className="hidden lg:flex items-center text-[10px] font-mono text-[#6e5d8a] bg-[#171124] px-1.5 py-0.5 border border-[#2b1f40]">
           SEC-09 // PZ-E
@@ -98,13 +140,25 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
       {/* Right: Facility clock & System Online status */}
       <div className="flex items-center gap-3">
         <div className="hidden sm:flex flex-col items-end text-[10px] font-mono leading-tight">
-          <span className="text-[#6d5b8c]">SYS_TIME (UTC)</span>
+          <span className="text-[#6d5b8c]">SYS_TIME</span>
           <span className="text-[#cfc5e8] tabular-nums font-semibold">{clock}</span>
         </div>
 
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-[#130d22] border border-[#2f2249] text-[10px] font-mono tracking-wider text-[#9d8cb8]">
-          <ShieldCheck className="w-3 h-3 text-[#38bdf8]" />
-          <span className="text-[#38bdf8] font-bold">ONLINE</span>
+        <div className={`flex items-center gap-1.5 px-2 py-1 border text-[10px] font-mono tracking-wider ${
+          healthStatus === 'ONLINE'
+            ? 'bg-[#0d1a1f] border-[#0284c7]/50 text-[#38bdf8]'
+            : healthStatus === 'DEGRADED'
+            ? 'bg-[#291e0a] border-[#d97706]/50 text-[#f59e0b]'
+            : 'bg-[#290d12] border-[#dc2626]/50 text-[#f87171]'
+        }`}>
+          {healthStatus === 'ONLINE' ? (
+            <ShieldCheck className="w-3 h-3 text-[#38bdf8]" />
+          ) : healthStatus === 'DEGRADED' ? (
+            <AlertCircle className="w-3 h-3 text-[#f59e0b]" />
+          ) : (
+            <WifiOff className="w-3 h-3 text-[#f87171]" />
+          )}
+          <span className="font-bold">{healthStatus}</span>
         </div>
       </div>
     </header>

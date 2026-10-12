@@ -35,8 +35,31 @@ export function App() {
   // Sound settings
   const [audioMuted, setAudioMuted] = useState<boolean>(false);
 
-  // Guards against concurrent duplicate clicks
+  // Authenticated Team Info
+  const [teamInfo, setTeamInfo] = useState<{
+    teamId?: string;
+    teamName?: string;
+    delegateId?: string;
+    points?: number;
+  } | null>(null);
+
+  // Guards against concurrent duplicate clicks & active timers
   const isExecutingRef = useRef<boolean>(false);
+  const timersRef = useRef<number[]>([]);
+
+  const safeTimeout = useCallback((fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      timersRef.current = timersRef.current.filter((t) => t !== id);
+      fn();
+    }, ms);
+    timersRef.current.push(id);
+    return id;
+  }, []);
+
+  const clearAllTimers = useCallback(() => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current = [];
+  }, []);
 
   // Audio mute toggle handler
   const handleToggleAudio = () => {
@@ -59,6 +82,7 @@ export function App() {
 
   // Reset simulation to arrival state
   const handleReset = useCallback(() => {
+    clearAllTimers();
     isExecutingRef.current = false;
     setStage('ARRIVAL');
     setGateStatus('LOCKED');
@@ -70,17 +94,41 @@ export function App() {
     setEvaluationSteps(mlEvaluationService.getEvaluationSteps());
     setNotifications([]);
     pushNotification('PROTOCOL SIMULATION RESET // PURPLE TRANSIT INITIALIZED', 'info');
-  }, [pushNotification]);
+  }, [clearAllTimers, pushNotification]);
 
   // Initial welcome notification
   useEffect(() => {
     pushNotification('PURPLE ZONE TRANSIT REACHED // SANCTUARY LINK ACTIVE', 'info');
   }, [pushNotification]);
 
-  // Initial sync with submissions API
+  // Initial sync with submissions API and bootstrap
   useEffect(() => {
     mlEvaluationService.syncSubmissions().catch(() => {});
-  }, []);
+
+    const fetchBootstrap = async () => {
+      try {
+        const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
+        const res = await fetch(`${apiBase}/api/bootstrap`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.team) {
+            setTeamInfo({
+              teamId: data.team.id,
+              teamName: data.team.name,
+              delegateId: data.delegateId,
+              points: data.team.points,
+            });
+            pushNotification(`AUTHENTICATED OPERATOR: ${data.team.name} [${data.team.id}]`, 'info');
+          }
+        }
+      } catch (_) {}
+    };
+    fetchBootstrap();
+
+    return () => {
+      clearAllTimers();
+    };
+  }, [clearAllTimers, pushNotification]);
 
   // --------------------------------------------------------------------------
   // STEP 1: RUN MODEL EVALUATION
@@ -94,7 +142,7 @@ export function App() {
     pushNotification(`MODEL EVALUATION TASK SUBMITTED (${rawFilename})`, 'system');
 
     // Slight transition pause into evaluating
-    setTimeout(async () => {
+    safeTimeout(async () => {
       setStage('EVALUATING');
 
       try {
@@ -124,8 +172,8 @@ export function App() {
           pushNotification('GATE 04 BLAST SEALS UNLATCHING // DISPATCHING TRANSPORTER EX-09', 'authorization');
 
           // Automatically trigger exit gate authorization after brief inspection dwell
-          setTimeout(() => {
-            handleAuthorizeExit();
+          safeTimeout(() => {
+            handleAuthorizeExit(result);
           }, 1400);
         } else {
           setStage('READY');
@@ -149,7 +197,13 @@ export function App() {
   // --------------------------------------------------------------------------
   // STEP 2: AUTHORIZE EXIT & ACTIVATE HELIPAD
   // --------------------------------------------------------------------------
-  const handleAuthorizeExit = () => {
+  const handleAuthorizeExit = (explicitResult?: EvaluationResult) => {
+    const activeResult = explicitResult || evaluationResult;
+    if (!activeResult?.qualifiesForEscape) {
+      pushNotification('AUTHORIZATION DENIED // MODEL R² DOES NOT SATISFY ≥ 80.00%', 'system');
+      return;
+    }
+
     setStage('EXIT_AUTHORIZED');
     pushNotification('EXTRACTION PROTOCOL AUTHORIZED', 'authorization');
 
@@ -157,11 +211,11 @@ export function App() {
     setGateStatus('AUTHORIZING');
     soundFx.playGateRelease();
 
-    setTimeout(() => {
+    safeTimeout(() => {
       setGateStatus('OPENING');
       pushNotification('GATE 04 BLAST SEALS UNLATCHING', 'system');
 
-      setTimeout(() => {
+      safeTimeout(() => {
         setGateStatus('OPEN');
         pushNotification('GATE 04 CLEARED // CORRIDOR UNSEALED', 'system');
 
@@ -169,13 +223,13 @@ export function App() {
         setHelipadStatus('INITIALIZING');
         pushNotification('HELIPAD SYSTEMS INITIALIZING', 'system');
 
-        setTimeout(() => {
+        safeTimeout(() => {
           setHelipadStatus('ACTIVE');
           setStage('HELIPAD_ACTIVE');
           pushNotification('HELIPAD STROBES ACTIVE // AZIMUTH 042° LOCKED', 'system');
 
           // 3. Dispatch Helicopter
-          setTimeout(() => {
+          safeTimeout(() => {
             handleHelicopterApproach();
           }, 800);
         }, 1200);
@@ -192,12 +246,12 @@ export function App() {
     pushNotification('EXTRACTION TRANSPORTER EX-09 INBOUND', 'extraction');
 
     // Wait for the 4-second approach flight animation to complete touchdown
-    setTimeout(() => {
+    safeTimeout(() => {
       setHelicopterStatus('LANDED');
       setHelipadStatus('EXTRACTION_HOT');
       pushNotification('TRANSPORTER TOUCHDOWN // PAD 01 HOT', 'extraction');
 
-      setTimeout(() => {
+      safeTimeout(() => {
         setHelicopterStatus('READY');
         setStage('EXTRACTION_READY');
         pushNotification('AWAITING EXTRACTION // BOARDING PERMIT ACTIVE', 'extraction');
@@ -210,7 +264,7 @@ export function App() {
   // STEP 4: BEGIN EXTRACTION (TAKEOFF & ESCAPE)
   // --------------------------------------------------------------------------
   const handleBeginExtraction = () => {
-    if (stage !== 'EXTRACTION_READY' && helicopterStatus !== 'READY') return;
+    if (stage !== 'EXTRACTION_READY' || helicopterStatus !== 'READY') return;
     if (isExecutingRef.current) return;
 
     isExecutingRef.current = true;
@@ -219,14 +273,15 @@ export function App() {
     pushNotification('EXTRACTION CONFIRMED // ASCENDING FROM PAD 01', 'extraction');
 
     // After the departure flight animation settles (~4.2s)
-    setTimeout(() => {
+    safeTimeout(() => {
       setHelicopterStatus('DEPARTED');
       setStage('EXTRACTED');
       soundFx.playFinalComplete();
       pushNotification('AIRSPACE CLEARED // EXTRACTION COMPLETE', 'authorization');
       try {
-        if (window.opener) window.opener.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, '*');
-        if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, '*');
+        const targetOrigin = window.location.origin;
+        if (window.opener) window.opener.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, targetOrigin);
+        if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, targetOrigin);
       } catch (e) {}
       isExecutingRef.current = false;
     }, 4200);
@@ -240,6 +295,7 @@ export function App() {
         audioMuted={audioMuted}
         onToggleAudio={handleToggleAudio}
         onReset={handleReset}
+        teamInfo={teamInfo}
       />
 
       {/* 2. Persistent Industrial Escape Route Progression Diagram */}
