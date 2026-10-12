@@ -288,22 +288,29 @@ export function App() {
 
     isExecutingRef.current = true;
 
-    // Authoritative pre-departure server verification
+    // Authoritative pre-departure server verification (STRICT FAIL-CLOSED)
     try {
       pushNotification('VERIFYING AUTHORITATIVE ESCAPE PERMIT WITH CENTRAL HUB...', 'system');
       const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
       const verifyRes = await fetch(`${apiBase}/api/bootstrap`, { credentials: 'include' });
-      if (verifyRes.ok) {
-        const boot = await verifyRes.json();
-        const serverVerified = Boolean(boot?.ml?.escapeUnlocked || (boot?.zones || []).some((z: any) => z.id === 'purple' && (z.state === 'cleared' || z.cleared)));
-        if (!serverVerified && boot.authenticated) {
-          pushNotification('EXTRACTION HALTED // SERVER HAS NOT CONFIRMED ESCAPE QUALIFICATION', 'system');
-          isExecutingRef.current = false;
-          return;
-        }
+      if (!verifyRes.ok) {
+        throw new Error(`Central Hub returned HTTP ${verifyRes.status} (${verifyRes.statusText})`);
       }
-    } catch (e) {
-      console.warn('Pre-departure verification skipped (offline or network error):', e);
+      const boot = await verifyRes.json();
+      if (!boot || !boot.authenticated) {
+        throw new Error('Authentication required. Session is not active or recognized by central hub.');
+      }
+      const isEscapeUnlocked = Boolean(boot.ml?.escapeUnlocked);
+      const isPurpleCleared = Boolean((boot.zones || []).some((z: any) => z.id === 'purple' && (z.state === 'cleared' || z.cleared)));
+
+      if (!isEscapeUnlocked && !isPurpleCleared) {
+        throw new Error('Escape clearance denied: Central hub has not confirmed qualifying ML score on record.');
+      }
+    } catch (err: any) {
+      soundFx.playWarning();
+      pushNotification(`EXTRACTION HALTED // SERVER VERIFICATION FAILED: ${err.message}`, 'system');
+      isExecutingRef.current = false;
+      return; // STRICT FAIL-CLOSED: Departure cannot proceed
     }
 
     setStage('EXTRACTION_IN_PROGRESS');
