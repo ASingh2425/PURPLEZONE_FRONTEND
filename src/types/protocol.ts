@@ -45,6 +45,11 @@ export interface EvaluationResult {
   modelFingerprint: string;
   datasetChecksum: string;
   status: 'ACCEPTED' | 'REJECTED';
+  r2Score?: number;
+  mseScore?: number;
+  qualifiesForEscape?: boolean;
+  submissionsUsed?: number;
+  submissionsRemaining?: number;
   primaryMetric: {
     label: string;
     value: string;

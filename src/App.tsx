@@ -77,16 +77,21 @@ export function App() {
     pushNotification('PURPLE ZONE TRANSIT REACHED // SANCTUARY LINK ACTIVE', 'info');
   }, [pushNotification]);
 
+  // Initial sync with submissions API
+  useEffect(() => {
+    mlEvaluationService.syncSubmissions().catch(() => {});
+  }, []);
+
   // --------------------------------------------------------------------------
   // STEP 1: RUN MODEL EVALUATION
   // --------------------------------------------------------------------------
-  const handleRunEvaluation = async () => {
+  const handleRunEvaluation = async (csvContent?: string, rawFilename: string = 'submission.csv') => {
     if (isExecutingRef.current) return;
-    if (stage !== 'ARRIVAL' && stage !== 'READY') return;
+    if (stage !== 'ARRIVAL' && stage !== 'READY' && stage !== 'EVALUATION_COMPLETE') return;
 
     isExecutingRef.current = true;
     setStage('SUBMITTING');
-    pushNotification('MODEL EVALUATION TASK SUBMITTED', 'system');
+    pushNotification(`MODEL EVALUATION TASK SUBMITTED (${rawFilename})`, 'system');
 
     // Slight transition pause into evaluating
     setTimeout(async () => {
@@ -94,6 +99,8 @@ export function App() {
 
       try {
         const result = await mlEvaluationService.evaluateModel(
+          csvContent,
+          rawFilename,
           (stepIndex, updatedStep, progress) => {
             setCurrentStepIndex(stepIndex);
             setEvaluationProgress(progress);
@@ -108,18 +115,32 @@ export function App() {
         );
 
         setEvaluationResult(result);
-        setStage('EVALUATION_COMPLETE');
-        soundFx.playAuthorized();
-        pushNotification('EVALUATION ACCEPTED // SURVIVAL POLICY CONVERGED', 'authorization');
 
-        // Automatically trigger exit gate authorization after brief inspection dwell
-        setTimeout(() => {
-          handleAuthorizeExit();
-        }, 1200);
+        if (result.qualifiesForEscape) {
+          setStage('EVALUATION_COMPLETE');
+          soundFx.playAuthorized();
+          const r2Pct = result.r2Score !== undefined ? (result.r2Score * 100).toFixed(2) : '80.00';
+          pushNotification(`EVALUATION SUCCESS // R² = ${r2Pct}% CRUSHED 80% THRESHOLD`, 'authorization');
+          pushNotification('GATE 04 BLAST SEALS UNLATCHING // DISPATCHING TRANSPORTER EX-09', 'authorization');
 
-      } catch (err) {
+          // Automatically trigger exit gate authorization after brief inspection dwell
+          setTimeout(() => {
+            handleAuthorizeExit();
+          }, 1400);
+        } else {
+          setStage('READY');
+          soundFx.playWarning();
+          const r2Pct = result.r2Score !== undefined ? (result.r2Score * 100).toFixed(2) : '0.00';
+          pushNotification(`EVALUATION REJECTED // R² = ${r2Pct}% BELOW 80.00% BENCHMARK`, 'system');
+          pushNotification(`GATE 04 SEALED // ${result.submissionsRemaining ?? 0} ATTEMPTS REMAINING`, 'system');
+          isExecutingRef.current = false;
+        }
+
+      } catch (err: any) {
         console.error('Model evaluation error:', err);
-        pushNotification('EVALUATION PIPELINE INTERRUPTED', 'system');
+        soundFx.playWarning();
+        pushNotification(err.message || 'EVALUATION PIPELINE INTERRUPTED', 'system');
+        setStage('READY');
         isExecutingRef.current = false;
       }
     }, 400);
@@ -203,6 +224,10 @@ export function App() {
       setStage('EXTRACTED');
       soundFx.playFinalComplete();
       pushNotification('AIRSPACE CLEARED // EXTRACTION COMPLETE', 'authorization');
+      try {
+        if (window.opener) window.opener.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, '*');
+        if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'PURPLE_ESCAPE_QUALIFIED' }, '*');
+      } catch (e) {}
       isExecutingRef.current = false;
     }, 4200);
   };
@@ -224,6 +249,31 @@ export function App() {
         helipadStatus={helipadStatus}
         helicopterStatus={helicopterStatus}
       />
+
+      {/* Persistent Helicopter Extraction Alert Banner (Visible when R² ≥ 0.80) */}
+      {evaluationResult?.qualifiesForEscape && stage !== 'EXTRACTED' && (
+        <div className="w-full bg-[#1b0f2e] border-y-2 border-[#9333ea] px-4 py-2 flex items-center justify-between shadow-[0_4px_20px_rgba(147,51,234,0.35)] z-20">
+          <div className="flex items-center gap-3">
+            <span className="text-xl animate-bounce">🚁</span>
+            <div>
+              <h4 className="text-xs sm:text-sm font-tech font-extrabold text-[#f5f2fd] tracking-wider uppercase">
+                EXTRACTION TRANSPORTER EX-09 AWAITING CREW AT TACTICAL HELIPAD 01
+              </h4>
+              <p className="text-[11px] font-mono text-[#c084fc]">
+                R² threshold of 80.00% satisfied ({evaluationResult.primaryMetric.value}). Evacuation clearance verified. Blast Gate 04 unsealed.
+              </p>
+            </div>
+          </div>
+          {stage === 'EXTRACTION_READY' && (
+            <button
+              onClick={handleBeginExtraction}
+              className="px-4 py-1.5 bg-[#10b981] hover:bg-[#059669] text-[#051f15] font-tech text-xs font-bold uppercase tracking-wider rounded-xs transition-colors shadow-sm"
+            >
+              BOARD CRAFT ↗
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 3. Main 2D Purple Zone Facility Environment Canvas */}
       <TransitEnvironment

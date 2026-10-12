@@ -15,7 +15,7 @@ interface TransitEnvironmentProps {
   currentStepIndex: number;
   steps: EvaluationStep[];
   evaluationResult: EvaluationResult | null;
-  onRunEvaluation: () => void;
+  onRunEvaluation: (csvContent?: string, filename?: string) => void;
   onProceedToExtraction: () => void;
   onBeginExtraction: () => void;
 }
@@ -104,7 +104,7 @@ export const TransitEnvironment: React.FC<TransitEnvironmentProps> = ({
         {/* -------------------------------------------------------------
             CENTER: ML EVALUATION TERMINAL & INTERACTION ZONE
             ------------------------------------------------------------- */}
-        <div className="flex-1 w-full max-w-xl flex flex-col items-center justify-center z-20">
+        <div className="flex-1 w-full max-w-2xl xl:max-w-3xl flex flex-col items-center justify-center z-20">
           <MLEvaluationTerminal
             stage={stage}
             evaluationProgress={evaluationProgress}
