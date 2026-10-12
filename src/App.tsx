@@ -282,11 +282,30 @@ export function App() {
   // --------------------------------------------------------------------------
   // STEP 4: BEGIN EXTRACTION (TAKEOFF & ESCAPE)
   // --------------------------------------------------------------------------
-  const handleBeginExtraction = () => {
+  const handleBeginExtraction = async () => {
     if (stage !== 'EXTRACTION_READY' || helicopterStatus !== 'READY') return;
     if (isExecutingRef.current) return;
 
     isExecutingRef.current = true;
+
+    // Authoritative pre-departure server verification
+    try {
+      pushNotification('VERIFYING AUTHORITATIVE ESCAPE PERMIT WITH CENTRAL HUB...', 'system');
+      const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
+      const verifyRes = await fetch(`${apiBase}/api/bootstrap`, { credentials: 'include' });
+      if (verifyRes.ok) {
+        const boot = await verifyRes.json();
+        const serverVerified = Boolean(boot?.ml?.escapeUnlocked || (boot?.zones || []).some((z: any) => z.id === 'purple' && (z.state === 'cleared' || z.cleared)));
+        if (!serverVerified && boot.authenticated) {
+          pushNotification('EXTRACTION HALTED // SERVER HAS NOT CONFIRMED ESCAPE QUALIFICATION', 'system');
+          isExecutingRef.current = false;
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Pre-departure verification skipped (offline or network error):', e);
+    }
+
     setStage('EXTRACTION_IN_PROGRESS');
     setHelicopterStatus('DEPARTING');
     pushNotification('EXTRACTION CONFIRMED // ASCENDING FROM PAD 01', 'extraction');
