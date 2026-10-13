@@ -23,7 +23,7 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
   teamInfo,
 }) => {
   const [clock, setClock] = useState<string>('00:00:00 UTC');
-  const [healthStatus, setHealthStatus] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE'>('ONLINE');
+  const [healthStatus, setHealthStatus] = useState<'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'CHECKING'>('CHECKING');
 
   // True UTC Clock
   useEffect(() => {
@@ -129,11 +129,11 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
             onReset();
           }}
           className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono text-[#8f80ad] hover:text-[#f3e8ff] bg-[#140e21] hover:bg-[#1d1530] border border-[#2e2145] transition-colors focus:outline-none focus:ring-1 focus:ring-[#9333ea]"
-          title="Reset Protocol Simulation"
-          aria-label="Restart protocol simulation from Arrival state"
+          title="Replay Visual Protocol Simulation (Preserves durable server evaluation records and quota)"
+          aria-label="Replay visual protocol simulation"
         >
           <RotateCcw className="w-3.5 h-3.5 text-[#8f80ad]" />
-          <span className="hidden sm:inline">RESET</span>
+          <span className="hidden sm:inline">REPLAY SIM</span>
         </button>
       </div>
 
@@ -147,18 +147,22 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
         <div className={`flex items-center gap-1.5 px-2 py-1 border text-[10px] font-mono tracking-wider ${
           healthStatus === 'ONLINE'
             ? 'bg-[#0d1a1f] border-[#0284c7]/50 text-[#38bdf8]'
+            : healthStatus === 'CHECKING'
+            ? 'bg-[#151124] border-[#7e3af2]/50 text-[#c084fc]'
             : healthStatus === 'DEGRADED'
             ? 'bg-[#291e0a] border-[#d97706]/50 text-[#f59e0b]'
             : 'bg-[#290d12] border-[#dc2626]/50 text-[#f87171]'
         }`}>
           {healthStatus === 'ONLINE' ? (
             <ShieldCheck className="w-3 h-3 text-[#38bdf8]" />
+          ) : healthStatus === 'CHECKING' ? (
+            <div className="w-2.5 h-2.5 rounded-full border border-t-transparent border-[#c084fc] animate-spin" />
           ) : healthStatus === 'DEGRADED' ? (
             <AlertCircle className="w-3 h-3 text-[#f59e0b]" />
           ) : (
             <WifiOff className="w-3 h-3 text-[#f87171]" />
           )}
-          <span className="font-bold">{healthStatus}</span>
+          <span className="font-bold">HUB: {healthStatus}</span>
         </div>
       </div>
     </header>

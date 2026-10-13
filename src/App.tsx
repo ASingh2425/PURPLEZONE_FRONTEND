@@ -109,7 +109,7 @@ export function App() {
     setEvaluationResult(null);
     setEvaluationSteps(mlEvaluationService.getEvaluationSteps());
     setNotifications([]);
-    pushNotification('PROTOCOL SIMULATION RESET // PURPLE TRANSIT INITIALIZED', 'info');
+    pushNotification('VISUAL SIMULATION REPLAY // PERSISTED SERVER STATE REMAINS PERMANENT', 'info');
     refreshQuota();
   }, [clearAllTimers, pushNotification, refreshQuota]);
 

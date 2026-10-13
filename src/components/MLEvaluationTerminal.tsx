@@ -59,6 +59,30 @@ const TEST_SURVIVOR_IDS = new Set([
   'SANC-0081','SANC-0082','SANC-0083','SANC-0084','SANC-0085','SANC-0086','SANC-0087','SANC-0088','SANC-0089','SANC-0090'
 ]);
 
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 interface PreflightStatus {
   checked: boolean;
   valid: boolean;
@@ -129,7 +153,8 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
 
   // Pre-flight validator function
   const runPreflightValidation = (raw: string, filename: string = 'submission.csv') => {
-    if (!raw || !raw.trim()) {
+    const cleanRaw = raw.replace(/^\uFEFF/, '').trim();
+    if (!cleanRaw) {
       setPreflight({
         checked: false,
         valid: false,
@@ -144,7 +169,7 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
     }
 
     const errors: string[] = [];
-    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const lines = cleanRaw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
     if (lines.length < 2) {
       setPreflight({
@@ -160,30 +185,38 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
       return;
     }
 
-    // 1. Header Validation
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    // 1. Header Validation (RFC-4180 compliant)
+    const header = parseCsvLine(lines[0]).map(h => h.toLowerCase().replace(/^["']|["']$/g, '').trim());
     const idIdx = header.findIndex(h => h === 'sanctuary_id');
     const predIdx = header.findIndex(h => h === 'survival_probability');
-    const headerValid = idIdx !== -1 && predIdx !== -1;
+    const headerValid = idIdx !== -1 && predIdx !== -1 && header.length === 2;
     if (!headerValid) {
-      errors.push('Header must contain "Sanctuary_ID" and "Survival_Probability" columns.');
+      errors.push('Header must contain exactly "Sanctuary_ID" and "Survival_Probability" columns.');
     }
 
     // 2. Parse & Check Rows
     const foundIds = new Set<string>();
     let invalidRangeCount = 0;
     let unrecognizedIdsCount = 0;
+    let malformedColumnCount = 0;
 
     for (let i = 1; i < lines.length; i++) {
-      const row = lines[i].split(',').map(c => c.trim());
-      if (row.length < 2) continue;
-      const id = idIdx !== -1 ? row[idIdx] : row[0];
-      const valStr = predIdx !== -1 ? row[predIdx] : row[1];
-      const val = parseFloat(valStr);
+      const row = parseCsvLine(lines[i]);
+      if (row.length !== 2) {
+        malformedColumnCount++;
+        if (malformedColumnCount <= 5) {
+          errors.push(`Row ${i + 1} has invalid column count (${row.length}, expected 2).`);
+        }
+        continue;
+      }
+      const id = (idIdx !== -1 ? row[idIdx] : row[0]).replace(/^["']|["']$/g, '').trim();
+      const valStr = (predIdx !== -1 ? row[predIdx] : row[1]).replace(/^["']|["']$/g, '').trim();
 
-      if (id) {
+      if (!id) {
+        errors.push(`Row ${i + 1} has an empty Sanctuary_ID.`);
+      } else {
         if (foundIds.has(id)) {
-          errors.push(`Duplicate Sanctuary_ID detected: ${id} at row ${i + 1}`);
+          errors.push(`Duplicate Sanctuary_ID detected: "${id}" at row ${i + 1}`);
         }
         foundIds.add(id);
 
@@ -192,14 +225,23 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
         }
       }
 
-      if (isNaN(val) || val < 0.0 || val > 1.0) {
+      if (!valStr || !/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(valStr)) {
         invalidRangeCount++;
+      } else {
+        const val = Number(valStr);
+        if (isNaN(val) || !Number.isFinite(val) || val < 0.0 || val > 1.0) {
+          invalidRangeCount++;
+        }
       }
+    }
+
+    if (malformedColumnCount > 5) {
+      errors.push(`... and ${malformedColumnCount - 5} additional rows with invalid column counts.`);
     }
 
     const countValid = foundIds.size === 120;
     if (!countValid) {
-      errors.push(`Expected exactly 120 survivor rows. Found: ${foundIds.size}.`);
+      errors.push(`Expected exactly 120 unique survivor rows. Found: ${foundIds.size}.`);
     }
 
     const idsValid = unrecognizedIdsCount === 0 && countValid;
@@ -209,10 +251,10 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
 
     const rangeValid = invalidRangeCount === 0;
     if (invalidRangeCount > 0) {
-      errors.push(`${invalidRangeCount} predictions have values outside [0.0, 1.0] or are non-numeric.`);
+      errors.push(`${invalidRangeCount} predictions have values outside [0.0, 1.0] or are malformed/non-numeric.`);
     }
 
-    const valid = headerValid && countValid && idsValid && rangeValid;
+    const valid = headerValid && countValid && idsValid && rangeValid && malformedColumnCount === 0;
 
     setPreflight({
       checked: true,
@@ -322,50 +364,85 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
   };
 
   const pythonStarterScript = `# ==============================================================================
-# PRALAYA CORE // RECONSTRUCTION & REGRESSION BASELINE (100% EXECUTABLE)
+# PRALAYA CORE // RECONSTRUCTION & REGRESSION PIPELINE (100% EXECUTABLE)
 # ==============================================================================
+import os
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import RidgeCV
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import KFold, cross_val_score
 
-print("[1/4] Loading reconstructed zone archive fragments...")
+print("[1/5] Loading reconstructed zone archive fragments...")
 # Load the 4 zone fragments recovered across previous sectors
 community = pd.read_csv('community_final.csv')   # Yellow Sector (20 features)
 radio     = pd.read_csv('radio_final.csv')       # Blue Sector   (18 features)
 forensics = pd.read_csv('forensics_final.csv')   # Orange Sector (18 features)
 research  = pd.read_csv('research_final.csv')    # Red Sector    (25 features)
 
-print("[2/4] Joining test survivors across fragments...")
+print("[2/5] Merging test cohort & verifying schema...")
 # Inner merge on Sanctuary_ID to assemble test.csv (120 survivors)
 test_df = community.merge(radio, on='Sanctuary_ID') \\
                    .merge(forensics, on='Sanctuary_ID') \\
                    .merge(research, on='Sanctuary_ID')
 
-print(f"      Reconstructed test set shape: {test_df.shape}")
+assert len(test_df) == 120, f"Expected 120 survivors, got {len(test_df)}"
+assert test_df['Sanctuary_ID'].nunique() == 120, "Duplicate Sanctuary_IDs detected in merge"
+print(f"      Reconstructed test cohort: {test_df.shape[0]} survivors across {test_df.shape[1] - 1} features.")
 
-print("[3/4] Training RandomForestRegressor on train.csv...")
-# Load historical labeled dataset (450 residents with Survival_Probability)
-train_df = pd.read_csv('train.csv')
-
+print("[3/5] Loading historical training data & preparing feature transforms...")
+train_df = pd.read_csv('train.csv')  # 450 historical residents with Survival_Probability
 target_col = 'Survival_Probability'
 feature_cols = [c for c in test_df.columns if c != 'Sanctuary_ID' and c in train_df.columns]
 
-X_train = train_df[feature_cols].select_dtypes(include=[np.number]).fillna(0)
+X_train = train_df[feature_cols]
 y_train = train_df[target_col]
-X_test  = test_df[X_train.columns].fillna(0)
+X_test  = test_df[feature_cols]
 
-# Train baseline Random Forest model
-model = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42)
+num_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+cat_cols = [c for c in feature_cols if c not in num_cols]
+print(f"      Features: {len(num_cols)} numeric, {len(cat_cols)} categorical.")
+
+# Robust preprocessing: median imputation & scaling for numeric; frequency impute & OHE for categorical
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', Pipeline([
+            ('imputer', SimpleImputer(strategy='median')),
+            ('scaler', StandardScaler())
+        ]), num_cols),
+        ('cat', Pipeline([
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('ohe', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+        ]), cat_cols)
+    ]
+)
+
+# Regularized linear model (RidgeCV automatically tunes alpha across log-space)
+model = Pipeline([
+    ('prep', preprocessor),
+    ('regressor', RidgeCV(alphas=np.logspace(-3, 3, 50)))
+])
+
+print("[4/5] Running 5-fold cross-validation on historical training data...")
+cv = KFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(model, X_train, y_train, cv=cv, scoring='r2')
+print(f"      Cross-Validation R² Mean: {cv_scores.mean():.4f} (+/- {cv_scores.std():.4f})")
+
+print("[5/5] Fitting full pipeline & generating predictions for test survivors...")
 model.fit(X_train, y_train)
-
-print("[4/4] Generating predictions and exporting submission.csv...")
-predictions = np.clip(model.predict(X_test), 0.0, 1.0)
+raw_preds = model.predict(X_test)
+predictions = np.clip(raw_preds, 0.0, 1.0)
 
 submission = pd.DataFrame({
     'Sanctuary_ID': test_df['Sanctuary_ID'],
     'Survival_Probability': np.round(predictions, 4)
 })
 
+assert len(submission) == 120, "Output must have exactly 120 rows"
+assert not submission['Survival_Probability'].isnull().any(), "No NaN values allowed"
 submission.to_csv('submission.csv', index=False)
 print("SUCCESS: submission.csv generated (120 rows). Ready for terminal upload!")
 print(submission.head(5))
