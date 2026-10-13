@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Helper parser to test RFC-4180 parsing in frontend
-function parseCsvLine(line: string): string[] {
+function parseCsvLine(line: string): string[] | null {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -22,6 +22,9 @@ function parseCsvLine(line: string): string[] {
       current += char;
     }
   }
+  if (inQuotes) {
+    return null;
+  }
   result.push(current.trim());
   return result;
 }
@@ -30,6 +33,7 @@ test('Frontend Preflight: parseCsvLine handles commas, quotes, whitespace', () =
   assert.deepEqual(parseCsvLine('"Sanctuary_ID","Survival_Probability"'), ['Sanctuary_ID', 'Survival_Probability']);
   assert.deepEqual(parseCsvLine('SANC-0091,0.8500'), ['SANC-0091', '0.8500']);
   assert.deepEqual(parseCsvLine('  "SANC-0091"  ,  0.8500  '), ['SANC-0091', '0.8500']);
+  assert.equal(parseCsvLine('"SANC-0091,0.8500'), null);
 });
 
 test('Frontend Preflight: strict numeric regex rejects "0.7junk"', () => {

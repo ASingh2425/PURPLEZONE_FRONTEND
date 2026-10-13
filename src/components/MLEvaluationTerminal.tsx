@@ -59,7 +59,7 @@ const TEST_SURVIVOR_IDS = new Set([
   'SANC-0081','SANC-0082','SANC-0083','SANC-0084','SANC-0085','SANC-0086','SANC-0087','SANC-0088','SANC-0089','SANC-0090'
 ]);
 
-function parseCsvLine(line: string): string[] {
+function parseCsvLine(line: string): string[] | null {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -78,6 +78,9 @@ function parseCsvLine(line: string): string[] {
     } else {
       current += char;
     }
+  }
+  if (inQuotes) {
+    return null; // Malformed CSV line: unmatched quote
   }
   result.push(current.trim());
   return result;
@@ -186,7 +189,21 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
     }
 
     // 1. Header Validation (RFC-4180 compliant)
-    const header = parseCsvLine(lines[0]).map(h => h.toLowerCase().replace(/^["']|["']$/g, '').trim());
+    const rawHeader = parseCsvLine(lines[0]);
+    if (!rawHeader) {
+      setPreflight({
+        checked: true,
+        valid: false,
+        headerValid: false,
+        rowCount: 0,
+        countValid: false,
+        idsValid: false,
+        rangeValid: false,
+        errors: ['Header has malformed CSV formatting (unmatched quote).'],
+      });
+      return;
+    }
+    const header = rawHeader.map(h => h.toLowerCase().replace(/^["']|["']$/g, '').trim());
     const idIdx = header.findIndex(h => h === 'sanctuary_id');
     const predIdx = header.findIndex(h => h === 'survival_probability');
     const headerValid = idIdx !== -1 && predIdx !== -1 && header.length === 2;
@@ -199,9 +216,15 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
     let invalidRangeCount = 0;
     let unrecognizedIdsCount = 0;
     let malformedColumnCount = 0;
+    let malformedQuoteCount = 0;
 
     for (let i = 1; i < lines.length; i++) {
       const row = parseCsvLine(lines[i]);
+      if (!row) {
+        malformedQuoteCount++;
+        errors.push(`Row ${i + 1} has malformed CSV formatting (unmatched quote).`);
+        continue;
+      }
       if (row.length !== 2) {
         malformedColumnCount++;
         if (malformedColumnCount <= 5) {
@@ -254,7 +277,7 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
       errors.push(`${invalidRangeCount} predictions have values outside [0.0, 1.0] or are malformed/non-numeric.`);
     }
 
-    const valid = headerValid && countValid && idsValid && rangeValid && malformedColumnCount === 0;
+    const valid = headerValid && countValid && idsValid && rangeValid && malformedColumnCount === 0 && malformedQuoteCount === 0;
 
     setPreflight({
       checked: true,
