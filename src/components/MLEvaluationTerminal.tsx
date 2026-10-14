@@ -373,6 +373,10 @@ export const MLEvaluationTerminal: React.FC<MLEvaluationTerminalProps> = ({
 
   // Submit evaluation action
   const handleTriggerSubmission = () => {
+    if (qualifies) {
+      soundFx.playWarning();
+      return;
+    }
     if (!preflight.valid) {
       soundFx.playWarning();
       return;
@@ -1076,17 +1080,19 @@ print(submission.head(5))
             {/* Run Evaluation Action Button */}
             <div className="pt-2">
               <button
-                disabled={!preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked}
+                disabled={!preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked || qualifies}
                 onClick={handleTriggerSubmission}
                 className={`w-full py-3 px-4 flex items-center justify-center gap-2 font-tech text-sm font-bold tracking-widest uppercase transition-all shadow-md ${
-                  !preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked
+                  !preflight.valid || isQuotaExhausted || isEvaluating || isSyncBlocked || qualifies
                     ? 'bg-[#1b122e] text-[#63537d] border border-[#2f204a] cursor-not-allowed opacity-60'
                     : 'bg-[#351963] hover:bg-[#4b238c] active:bg-[#28114c] text-[#f5f2fe] border-2 border-[#9333ea] shadow-[0_0_20px_rgba(147,51,234,0.35)] cursor-pointer'
                 }`}
               >
                 <Play className="w-4 h-4 text-[#38bdf8] fill-current" />
                 <span>
-                  {isSyncBlocked
+                  {qualifies
+                    ? 'EXTRACTION AUTHORIZED // SUBMISSIONS LOCKED (+1,000 PTS AWARDED)'
+                    : isSyncBlocked
                     ? 'QUOTA SYNC REQUIRED // RECONNECT TO HUB'
                     : isQuotaExhausted
                     ? 'EVALUATION LOCKED (10/10 EXHAUSTED)'
