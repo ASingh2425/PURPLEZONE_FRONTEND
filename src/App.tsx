@@ -8,7 +8,7 @@ import {
   EvaluationStep,
   SystemNotification,
 } from './types/protocol';
-import { mlEvaluationService, CANONICAL_EVALUATION_STEPS } from './services/mlAdapter';
+import { mlEvaluationService, CANONICAL_EVALUATION_STEPS, getAuthHeaders } from './services/mlAdapter';
 import { soundFx } from './services/soundFx';
 import { TopSystemBar } from './components/TopSystemBar';
 import { EscapeRouteDiagram } from './components/EscapeRouteDiagram';
@@ -42,6 +42,21 @@ export function App() {
     delegateId?: string;
     points?: number;
   } | null>(null);
+
+  // Operator Authentication State
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [loginTeamId, setLoginTeamId] = useState<string>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const p = new URLSearchParams(window.location.search);
+        return (p.get('team') || p.get('teamId') || localStorage.getItem('manu_team_id') || '').trim();
+      }
+    } catch (_) {}
+    return '';
+  });
+  const [loginPassword, setLoginPassword] = useState<string>('');
+  const [loginError, setLoginError] = useState<string>('');
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
   // Guards against concurrent duplicate clicks & active timers
   const isExecutingRef = useRef<boolean>(false);
@@ -125,7 +140,10 @@ export function App() {
     const fetchBootstrap = async () => {
       try {
         const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
-        const res = await fetch(`${apiBase}/api/bootstrap`, { credentials: 'include' });
+        const res = await fetch(`${apiBase}/api/bootstrap`, {
+          headers: { ...getAuthHeaders() },
+          credentials: 'include'
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.authenticated && data.team) {
@@ -135,10 +153,17 @@ export function App() {
               delegateId: data.delegateId,
               points: data.team.points,
             });
+            setShowAuthModal(false);
             pushNotification(`AUTHENTICATED OPERATOR: ${data.team.name} [${data.team.id}]`, 'info');
+          } else {
+            setShowAuthModal(true);
           }
+        } else {
+          setShowAuthModal(true);
         }
-      } catch (_) {}
+      } catch (_) {
+        setShowAuthModal(true);
+      }
     };
     fetchBootstrap();
 
@@ -146,6 +171,48 @@ export function App() {
       clearAllTimers();
     };
   }, [clearAllTimers, pushNotification, refreshQuota]);
+
+  const handleCrewLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const tid = loginTeamId.trim().toUpperCase();
+    const pw = loginPassword.trim();
+    if (!tid || !pw) {
+      setLoginError('Team ID and Password are required');
+      return;
+    }
+    setIsLoggingIn(true);
+    setLoginError('');
+    try {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
+      const res = await fetch(`${apiBase}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: tid, passcode: pw })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.sessionId) {
+        throw new Error(data.message || data.error || 'Authentication rejected. Verify Team ID and Password.');
+      }
+      try {
+        localStorage.setItem('tld_session_id', data.sessionId);
+        localStorage.setItem('manu_team_id', data.team?.id || tid);
+      } catch (_) {}
+      setTeamInfo({
+        teamId: data.team?.id || tid,
+        teamName: data.team?.name || tid,
+        delegateId: data.delegateId || 'OPERATOR',
+        points: data.team?.points,
+      });
+      setShowAuthModal(false);
+      pushNotification(`OPERATOR AUTHENTICATED: ${data.team?.name || tid}`, 'authorization');
+      refreshQuota();
+    } catch (err: any) {
+      setLoginError(err.message || 'Login failed');
+      soundFx.playWarning();
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   // --------------------------------------------------------------------------
   // STEP 1: RUN MODEL EVALUATION
@@ -292,7 +359,10 @@ export function App() {
     try {
       pushNotification('VERIFYING AUTHORITATIVE ESCAPE PERMIT WITH CENTRAL HUB...', 'system');
       const apiBase = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
-      const verifyRes = await fetch(`${apiBase}/api/bootstrap`, { credentials: 'include' });
+      const verifyRes = await fetch(`${apiBase}/api/bootstrap`, {
+        headers: { ...getAuthHeaders() },
+        credentials: 'include'
+      });
       if (!verifyRes.ok) {
         throw new Error(`Central Hub returned HTTP ${verifyRes.status} (${verifyRes.statusText})`);
       }
@@ -404,6 +474,81 @@ export function App() {
           evaluationResult={evaluationResult}
           onRestart={handleReset}
         />
+      )}
+
+      {/* 6. Operator Authentication Modal (Enforces Password Requirement) */}
+      {showAuthModal && !teamInfo?.teamId && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-[#0f0b18] border-2 border-[#9333ea] p-6 max-w-md w-full shadow-[0_0_50px_rgba(147,51,234,0.4)] relative">
+            <div className="flex items-center justify-between border-b border-[#2e2145] pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 bg-[#a855f7] animate-pulse" />
+                <h3 className="font-tech text-sm font-bold tracking-wider text-[#f5f2fd] uppercase">
+                  MANU PROTOCOL // CREW CLEARANCE
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-[#c084fc] bg-[#1e1333] px-2 py-0.5 border border-[#581c87]">
+                PURPLE EXTRACTION
+              </span>
+            </div>
+
+            <p className="text-xs font-mono text-[#9f91ba] mb-4 leading-relaxed">
+              Extraction authorization requires active operator authentication. Enter your designated Team ID and Passcode.
+            </p>
+
+            <form onSubmit={handleCrewLogin} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-mono text-[#c084fc] mb-1 font-semibold">
+                  TEAM IDENTIFIER:
+                </label>
+                <input
+                  type="text"
+                  value={loginTeamId}
+                  onChange={(e) => setLoginTeamId(e.target.value.toUpperCase())}
+                  placeholder="e.g. TEAM1 or TECHTEAM10328"
+                  className="w-full bg-[#161024] border border-[#3b2d54] focus:border-[#a855f7] px-3 py-2 text-xs font-mono text-[#ede8f5] focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-[#c084fc] mb-1 font-semibold">
+                  TEAM PASSWORD / PASSCODE:
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Enter team passcode"
+                  className="w-full bg-[#161024] border border-[#3b2d54] focus:border-[#a855f7] px-3 py-2 text-xs font-mono text-[#ede8f5] focus:outline-none"
+                  required
+                />
+              </div>
+
+              {loginError && (
+                <div className="p-2 bg-[#2d0f19] border border-[#e11d48]/50 text-[11px] font-mono text-[#fb7185]">
+                  {loginError}
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-between">
+                <a
+                  href="https://last-dataset.vercel.app/"
+                  className="text-[11px] font-mono text-[#8b7ca8] hover:text-[#ede8f5] underline"
+                >
+                  Return to Map Hub
+                </a>
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="px-5 py-2 bg-[#9333ea] hover:bg-[#7e22ce] disabled:opacity-50 text-white font-tech text-xs font-bold uppercase tracking-wider transition-colors shadow-sm"
+                >
+                  {isLoggingIn ? 'AUTHENTICATING...' : 'VERIFY CREW ↗'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

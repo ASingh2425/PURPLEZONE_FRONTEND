@@ -90,6 +90,32 @@ export const CANONICAL_EVALUATION_STEPS: EvaluationStep[] = [
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string || '').replace(/\/$/, '');
 
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const launchToken = urlParams.get('launchToken') || localStorage.getItem('tld_launch_token') || sessionStorage.getItem('tld_launch_token');
+      const sessionId = urlParams.get('sessionId') || localStorage.getItem('tld_session_id') || sessionStorage.getItem('tld_session_id');
+      const teamId = urlParams.get('team') || urlParams.get('teamId') || localStorage.getItem('manu_team_id') || sessionStorage.getItem('manu_team_id');
+
+      if (launchToken) {
+        headers['x-launch-token'] = launchToken;
+        try { localStorage.setItem('tld_launch_token', launchToken); } catch (_) {}
+      }
+      if (sessionId) {
+        headers['x-session-id'] = sessionId;
+        try { localStorage.setItem('tld_session_id', sessionId); } catch (_) {}
+      }
+      if (teamId) {
+        headers['x-team-id'] = teamId;
+        try { localStorage.setItem('manu_team_id', teamId); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return headers;
+}
+
 export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
   private steps: EvaluationStep[] = [...CANONICAL_EVALUATION_STEPS];
   private submissionCount: number = 0;
@@ -104,6 +130,7 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
 
   async syncSubmissions(): Promise<{ used: number; remaining: number }> {
     const res = await fetch(`${API_BASE_URL}/api/ml/submissions`, {
+      headers: { ...getAuthHeaders() },
       credentials: 'include',
     });
     if (!res.ok) {
@@ -167,7 +194,7 @@ export class RealMLEvaluationAdapter implements IMLEvaluationAdapter {
     try {
       response = await fetch(`${API_BASE_URL}/api/ml/evaluate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
         body: JSON.stringify({ csvContent, rawFilename })
       });

@@ -135,6 +135,16 @@ export const TopSystemBar: React.FC<TopSystemBarProps> = ({
           <RotateCcw className="w-3.5 h-3.5 text-[#8f80ad]" />
           <span className="hidden sm:inline">REPLAY SIM</span>
         </button>
+
+        {/* Central Map link */}
+        <a
+          href={teamInfo?.teamId ? `https://last-dataset.vercel.app/?team=${encodeURIComponent(teamInfo.teamId)}` : 'https://last-dataset.vercel.app/'}
+          target="_top"
+          className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono text-[#38bdf8] hover:text-white bg-[#0e1726] hover:bg-[#14233a] border border-[#0284c7]/50 transition-colors focus:outline-none focus:ring-1 focus:ring-[#0284c7]"
+          title="Return to Central Command Map Hub"
+        >
+          <span>⬡ CENTRAL MAP</span>
+        </a>
       </div>
 
       {/* Right: Facility clock & System Online status */}
