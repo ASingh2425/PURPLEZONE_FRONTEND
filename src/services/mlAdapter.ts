@@ -95,9 +95,30 @@ export function getAuthHeaders(): Record<string, string> {
   try {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
-      const launchToken = urlParams.get('launchToken') || localStorage.getItem('tld_launch_token') || sessionStorage.getItem('tld_launch_token');
-      const sessionId = urlParams.get('sessionId') || localStorage.getItem('tld_session_id') || sessionStorage.getItem('tld_session_id');
-      const teamId = urlParams.get('team') || urlParams.get('teamId') || localStorage.getItem('manu_team_id') || sessionStorage.getItem('manu_team_id');
+      const urlTeam = (urlParams.get('team') || urlParams.get('teamId') || '').trim().toUpperCase();
+      let storedTeam = (localStorage.getItem('manu_team_id') || sessionStorage.getItem('manu_team_id') || '').trim().toUpperCase();
+      if (storedTeam === 'TECHTEAM10328' && urlTeam !== 'TECHTEAM10328') {
+        localStorage.removeItem('manu_team_id');
+        sessionStorage.removeItem('manu_team_id');
+        localStorage.removeItem('tld_launch_token');
+        sessionStorage.removeItem('tld_launch_token');
+        storedTeam = '';
+      }
+      const teamId = urlTeam || (storedTeam !== 'TECHTEAM10328' ? storedTeam : '');
+
+      let launchToken = (urlParams.get('launchToken') || localStorage.getItem('tld_launch_token') || sessionStorage.getItem('tld_launch_token') || '').trim();
+      if (launchToken && teamId && teamId !== 'TECHTEAM10328') {
+        try {
+          const payload = JSON.parse(atob(launchToken.split('.')[0].replace(/-/g, '+').replace(/_/g, '/')));
+          if (payload && (payload.teamId === 'TECHTEAM10328' || payload.team === 'TECHTEAM10328')) {
+            localStorage.removeItem('tld_launch_token');
+            sessionStorage.removeItem('tld_launch_token');
+            launchToken = '';
+          }
+        } catch (_) {}
+      }
+
+      const sessionId = (urlParams.get('sessionId') || localStorage.getItem('tld_session_id') || sessionStorage.getItem('tld_session_id') || '').trim();
 
       if (launchToken) {
         headers['x-launch-token'] = launchToken;
@@ -109,7 +130,9 @@ export function getAuthHeaders(): Record<string, string> {
       }
       if (teamId) {
         headers['x-team-id'] = teamId;
-        try { localStorage.setItem('manu_team_id', teamId); } catch (_) {}
+        if (teamId !== 'TECHTEAM10328') {
+          try { localStorage.setItem('manu_team_id', teamId); } catch (_) {}
+        }
       }
     }
   } catch (_) {}

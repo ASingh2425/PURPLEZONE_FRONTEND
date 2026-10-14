@@ -49,7 +49,14 @@ export function App() {
     try {
       if (typeof window !== 'undefined') {
         const p = new URLSearchParams(window.location.search);
-        return (p.get('team') || p.get('teamId') || localStorage.getItem('manu_team_id') || '').trim();
+        const urlTeam = (p.get('team') || p.get('teamId') || '').trim().toUpperCase();
+        let stored = (localStorage.getItem('manu_team_id') || sessionStorage.getItem('manu_team_id') || '').trim().toUpperCase();
+        if (stored === 'TECHTEAM10328' && urlTeam !== 'TECHTEAM10328') {
+          localStorage.removeItem('manu_team_id');
+          sessionStorage.removeItem('manu_team_id');
+          stored = '';
+        }
+        return urlTeam || (stored !== 'TECHTEAM10328' ? stored : '');
       }
     } catch (_) {}
     return '';
