@@ -2,18 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://last-dataset.vercel.app/api/:path*"
-    },
-    {
-      "source": "/datasets/:path*",
-      "destination": "https://last-dataset.vercel.app/datasets/:path*"
-    },
+  "redirects": [
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "https://last-dataset.vercel.app/purple",
+      "permanent": false
     }
   ]
 }
