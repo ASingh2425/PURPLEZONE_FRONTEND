@@ -1,11 +1,9 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "redirects": [
     {
       "source": "/(.*)",
-      "destination": "https://last-dataset.vercel.app/purple",
+      "destination": "https://the-last-dataset-jqpr.vercel.app/",
       "permanent": false
     }
   ]
